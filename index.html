@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Painel de XP e Metas – Tibia</title>
+<style>
+:root{--bg:#f5f6f8;--card:#fff;--tx:#1b1f27;--mut:#667085;--ln:#e4e7ec;--ok:#12a150;--wa:#d97706;--c0:#2f6fed;--c1:#12a150;--c2:#d97706;--c3:#c026d3}
+@media (prefers-color-scheme:dark){:root{--bg:#10141b;--card:#181e28;--tx:#e8ecf3;--mut:#93a0b4;--ln:#283142;--ok:#3ccf82;--wa:#f5a524;--c0:#6b9bff;--c1:#3ccf82;--c2:#f5a524;--c3:#e879f9}}
+*{box-sizing:border-box}body{margin:0;font:15px/1.5 system-ui,Arial,sans-serif;background:var(--bg);color:var(--tx)}
+main{max-width:1000px;margin:0 auto;padding:20px 16px 40px}
+h1{font-size:22px;margin:0}h2{font-size:15px;margin:22px 0 8px}
+.sub{color:var(--mut);font-size:13px;margin:2px 0 14px}
+.warn{background:var(--card);border:1px solid var(--wa);color:var(--wa);border-radius:10px;padding:8px 12px;font-size:13px;margin-bottom:12px}
+.kpis,.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+.k,.p,.box{background:var(--card);border:1px solid var(--ln);border-radius:12px;padding:14px}
+.k b{display:block;font-size:24px}.k span{color:var(--mut);font-size:12px}
+.p h3{margin:0;font-size:16px}.voc{font-size:12px;color:var(--mut)}
+.row{display:flex;justify-content:space-between;font-size:13px;padding:3px 0;border-top:1px solid var(--ln);margin-top:3px}
+.row span{color:var(--mut)}.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px}
+.tag{font-weight:600}.ok{color:var(--ok)}.wa{color:var(--wa)}
+.scroll{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:13px;min-width:640px}
+th,td{padding:7px 8px;text-align:right;border-bottom:1px solid var(--ln);white-space:nowrap}th{color:var(--mut);font-weight:600}th:first-child,td:first-child{text-align:left}
+svg{width:100%;height:auto;display:block}.leg{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--mut);margin-top:6px}
+footer{color:var(--mut);font-size:12px;margin-top:22px}
+</style>
+</head>
+<body>
+<main>
+  <h1>Painel de XP e Metas – Tibia</h1>
+  <div class="sub" id="sub">Carregando…</div>
+  <div id="warn"></div>
+  <div class="kpis" id="kpis"></div>
+  <h2>Jogadores</h2><div class="grid" id="cards"></div>
+  <h2>Comparativo</h2><div class="box scroll"><table id="tbl"></table></div>
+  <h2>XP por dia (últimos 30 dias)</h2><div class="box"><div id="chart"></div><div class="leg" id="leg"></div></div>
+  <footer>Dados do TibiaData, coletados automaticamente todo dia. Dias com perda de XP (morte) aparecem como zero no gráfico. Metas e jogadores em <code>config.json</code>.</footer>
+</main>
+<script>
+const $=id=>document.getElementById(id), C=["var(--c0)","var(--c1)","var(--c2)","var(--c3)"];
+const fmt=n=>Math.round(n).toLocaleString("pt-BR"), gi=n=>(n/1e9).toFixed(2).replace(".",",");
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const expFor=L=>50/3*(L**3-6*L**2+17*L-12);
+const addDays=(d,n)=>{const t=new Date(d+"T00:00:00Z");t.setUTCDate(t.getUTCDate()+n);return t.toISOString().slice(0,10)};
+const diffDays=(a,b)=>Math.round((new Date(a)-new Date(b))/864e5);
+
+function stats(ch,h){
+  const ds=Object.keys(h||{}).sort(); if(!ds.length) return {ch,empty:true};
+  const last=ds[ds.length-1], cur=h[last], E=d=>h[d]?.exp;
+  const back=n=>{const t=addDays(last,-n);let b=null;for(const d of ds){if(d<=t)b=d}return b||(ds[0]!==last&&n>=7?ds[0]:null)};
+  const gain=n=>{const b=back(n);return b&&cur.exp!=null&&E(b)!=null?{v:cur.exp-E(b),days:diffDays(last,b)}:null};
+  const prev=E(addDays(last,-1));
+  const ontem=prev!=null&&cur.exp!=null?cur.exp-prev:null, g7=gain(7), g30=gain(30);
+  const avg=g30?g30.v/g30.days:null;
+  const dias=avg>0&&cur.exp!=null?(expFor(ch.targetLevel)-cur.exp)/avg:null;
+  const daily=[];for(let i=29;i>=0;i--){const d=addDays(last,-i),p=E(addDays(d,-1)),c=E(d);daily.push({d,v:c!=null&&p!=null?c-p:null})}
+  return {ch,last,level:cur.level,exp:cur.exp,ontem,g7:g7&&g7.v,g30:g30&&g30.v,avg,dias,daily};
+}
+const dn=n=>n==null?"–":fmt(n);
+const sit=s=>s.dias==null?"–":s.level>=s.ch.targetLevel?"Meta atingida":`${s.dias.toFixed(0)} dias p/ lvl ${s.ch.targetLevel}`;
+
+function render(cfg,hist,meta){
+  const S=cfg.characters.map(c=>stats(c,hist[c.name])), ok=S.filter(s=>!s.empty);
+  const newest=ok.map(s=>s.last).sort().pop();
+  const age=newest?diffDays(new Date().toISOString().slice(0,10),newest):null;
+  $("sub").textContent=newest?`Último dado: ${newest.split("-").reverse().join("/")}`+(meta?.updatedAt?` · coletado em ${new Date(meta.updatedAt).toLocaleString("pt-BR")}`:""):"Sem dados";
+  $("warn").innerHTML=age>2?`<div class="warn">Os dados estão ${age} dias atrasados. Verifique a coleta automática (aba Actions do GitHub).</div>`:"";
+  const sum=k=>ok.reduce((a,s)=>a+(s[k]||0),0), lv=ok.filter(s=>s.level);
+  $("kpis").innerHTML=[[gi(sum("ontem"))+" B","XP ontem da PT"],[gi(sum("g30"))+" B","XP 30 dias da PT"],
+    [ok.slice().sort((a,b)=>(b.ontem||0)-(a.ontem||0))[0]?.ch.name||"–","Mais XP ontem"],
+    [lv.length?fmt(lv.reduce((a,s)=>a+s.level,0)/lv.length):"–","Level médio"]].map(([b,t])=>`<div class="k"><b>${esc(b)}</b><span>${t}</span></div>`).join("");
+  $("cards").innerHTML=S.map((s,i)=>s.empty?"":`<div class="p"><h3><span class="dot" style="background:${C[i%4]}"></span>${esc(s.ch.name)}</h3>
+    <div class="voc">${esc(s.ch.voc||"")} · level ${s.level??"–"}</div>
+    <div class="row"><span>XP ontem</span><b>${dn(s.ontem)}</b></div><div class="row"><span>Média/dia (30d)</span><b>${dn(s.avg)}</b></div>
+    <div class="row"><span>XP 30d</span><b>${dn(s.g30)}</b></div>
+    <div class="row"><span>Meta</span><span class="tag ${s.level>=s.ch.targetLevel?"ok":"wa"}">${sit(s)}</span></div></div>`).join("");
+  $("tbl").innerHTML="<tr><th>Jogador</th><th>Voc</th><th>Level</th><th>XP ontem</th><th>XP 7d</th><th>XP 30d</th><th>Média/dia</th><th>Meta</th></tr>"+
+    ok.slice().sort((a,b)=>(b.g30||0)-(a.g30||0)).map(s=>`<tr><td>${esc(s.ch.name)}</td><td>${esc(s.ch.voc||"")}</td><td>${s.level??"–"}</td><td>${dn(s.ontem)}</td><td>${dn(s.g7)}</td><td>${dn(s.g30)}</td><td>${dn(s.avg)}</td><td>${sit(s)}</td></tr>`).join("");
+  chart(S);
+}
+function chart(S){
+  const W=900,H=260,P={l:48,r:10,t:10,b:24}, all=S.flatMap(s=>(s.daily||[]).map(x=>x.v)).filter(v=>v!=null);
+  if(!all.length){$("chart").textContent="Sem dados suficientes.";return}
+  const mx=Math.max(...all)*1.05, x=i=>P.l+i*(W-P.l-P.r)/29, y=v=>H-P.b-v/mx*(H-P.t-P.b);
+  let g="";for(let k=0;k<=4;k++){const v=mx*k/4;g+=`<line x1="${P.l}" x2="${W-P.r}" y1="${y(v)}" y2="${y(v)}" stroke="var(--ln)"/><text x="${P.l-6}" y="${y(v)+4}" text-anchor="end" font-size="11" fill="var(--mut)">${(v/1e6).toFixed(0)}M</text>`}
+  const ref=S.find(s=>s.daily)?.daily||[];[0,14,29].forEach(i=>{if(ref[i])g+=`<text x="${x(i)}" y="${H-6}" text-anchor="${i==29?"end":i==0?"start":"middle"}" font-size="11" fill="var(--mut)">${ref[i].d.slice(8)}/${ref[i].d.slice(5,7)}</text>`});
+  S.forEach((s,i)=>{if(!s.daily)return;let d="",pen=false;s.daily.forEach((p,j)=>{if(p.v==null){pen=false;return}d+=(pen?"L":"M")+x(j).toFixed(1)+" "+y(Math.max(0,p.v)).toFixed(1);pen=true});
+    g+=`<path d="${d}" fill="none" stroke="${C[i%4]}" stroke-width="2"/>`});
+  $("chart").innerHTML=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="XP diária">${g}</svg>`;
+  $("leg").innerHTML=S.map((s,i)=>`<span><span class="dot" style="background:${C[i%4]}"></span>${esc(s.ch.name)}</span>`).join("");
+}
+async function load(){
+  const j=async(u,opt)=>{try{const r=await fetch(u+"?t="+Date.now(),{cache:"no-store"});return r.ok?await r.json():opt}catch{return opt}};
+  const [cfg,hist,meta]=await Promise.all([j("config.json"),j("data/history.json",{}),j("data/meta.json",null)]);
+  if(!cfg){$("sub").textContent="Não consegui ler config.json. Abra o site por um servidor (não direto do arquivo).";return}
+  render(cfg,hist,meta);
+}
+load();setInterval(load,10*60*1000);
+</script>
+</body>
+</html>

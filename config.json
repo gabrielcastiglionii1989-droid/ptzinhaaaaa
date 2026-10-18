@@ -1,0 +1,9 @@
+{
+  "world": "Collabra",
+  "characters": [
+    { "name": "Gabz Implacavel",   "voc": "RP", "targetLevel": 2300 },
+    { "name": "Marcha Implacavel", "voc": "ED", "targetLevel": 2300 },
+    { "name": "Twiiu",             "voc": "MS", "targetLevel": 2300 },
+    { "name": "Kipersz",           "voc": "EK", "targetLevel": 2300 }
+  ]
+}
